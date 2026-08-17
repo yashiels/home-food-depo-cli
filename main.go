@@ -50,7 +50,7 @@ func main() {
 		return
 	}
 
-	d, cliErr := buildDeps()
+	d, cliErr := buildDeps(tokenRequired[cmd])
 	if cliErr != nil {
 		emit(nil, cliErr)
 		return
@@ -58,6 +58,15 @@ func main() {
 
 	data, err := h(d, rest)
 	emit(data, err)
+}
+
+// tokenRequired: only edge-function commands need the personal token. menu/menus/get use the
+// anon key; next is pure local date math — none of them should fail when no token is configured.
+var tokenRequired = map[string]bool{
+	"order":  true,
+	"cancel": true,
+	"orders": true,
+	"call":   true,
 }
 
 // emit renders exactly one JSON document and sets the exit code.
@@ -83,10 +92,14 @@ func emit(data interface{}, cliErr *CLIError) {
 // buildDeps loads the personal token (edge-function auth) and wires dependencies.
 // Token source: env HFD_TOKEN, else ~/.config/hfd/token (must be 0600 or stricter).
 // The token is never printed, logged, or placed in argv.
-func buildDeps() (*Deps, *CLIError) {
-	tok, cliErr := loadToken()
-	if cliErr != nil {
-		return nil, cliErr
+func buildDeps(needToken bool) (*Deps, *CLIError) {
+	var tok string
+	if needToken {
+		var cliErr *CLIError
+		tok, cliErr = loadToken()
+		if cliErr != nil {
+			return nil, cliErr
+		}
 	}
 	return &Deps{
 		Backend: newHTTPBackend(tok),
