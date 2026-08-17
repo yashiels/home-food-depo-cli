@@ -560,12 +560,13 @@ func cmdOrder(d *Deps, a []string) (interface{}, *CLIError) {
 			return nil, validationErr("--for (guest ordering) is disabled pending verification")
 		}
 	}
-	pos, cerr := splitArgs(a, map[string]*string{})
+	var note string
+	pos, cerr := splitArgs(a, map[string]*string{"--note": &note})
 	if cerr != nil {
 		return nil, cerr
 	}
 	if len(pos) != 2 {
-		return nil, usageErr("usage: hfd order <menu_item_id> <YYYY-MM-DD>")
+		return nil, usageErr("usage: hfd order <menu_item_id> <YYYY-MM-DD> [--note <text>]")
 	}
 	itemID, date := pos[0], pos[1]
 	if !validUUID(itemID) {
@@ -589,7 +590,11 @@ func cmdOrder(d *Deps, a []string) (interface{}, *CLIError) {
 	}
 	beforeIDs := orderIDSet(before)
 
-	body, err := json.Marshal(map[string]string{"menu_item_id": itemID, "delivery_date": date})
+	payload := map[string]string{"menu_item_id": itemID, "delivery_date": date}
+	if note != "" {
+		payload["special_requirements"] = note // e.g. "spicy very spicy"
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, &CLIError{Code: CodeValidation, Message: "could not encode the order body"}
 	}
@@ -917,7 +922,8 @@ COMMANDS
   menu [YYYY-MM-DD] [--menu-id <id>]   Items for a menu. Default = newest published menu
                                        (a labeled heuristic). A date filters by WEEKDAY only.
   menus                                List published menus (id, year, quarter, week, published_at).
-  order <menu_item_id> <YYYY-MM-DD>    Place a self-order. --for (guest) is DISABLED.
+  order <item_id> <YYYY-MM-DD> [--note <text>]  Place a self-order. --note sets special
+                                       requirements (e.g. "spicy very spicy"). --for is DISABLED.
   orders                               List my orders.
   cancel <order_id>                    Cancel an order (preflight + reconciliation).
   call --method GET|POST <fn> [json|-] Generic edge-function passthrough; "-" reads the body from stdin.
@@ -1014,7 +1020,7 @@ func helpCommands() []helpCommand {
 			Description: "List published menus, newest published_at first.",
 		},
 		{
-			Name: "order", Args: []string{"<menu_item_id>", "<YYYY-MM-DD>"}, Flags: []string{},
+			Name: "order", Args: []string{"<menu_item_id>", "<YYYY-MM-DD>"}, Flags: []string{"--note <text>"},
 			Description: "Place a self-order for a menu item on a delivery date.",
 			Notes: []string{
 				"--for (guest ordering) is DISABLED and returns VALIDATION.",
