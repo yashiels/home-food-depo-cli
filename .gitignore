@@ -3,3 +3,4 @@ hfd
 .DS_Store
 .env
 .env.local
+__pycache__/
