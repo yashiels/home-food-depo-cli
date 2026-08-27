@@ -35,6 +35,9 @@ Ordering spends real money on real food. **Propose, then wait for a clear "yes" 
    It returns `{delivery_week, menu_id, cold_start, days:[{date, weekday, ranked:[{name,score,reasons}], excluded}]}`.
    Trust its `menu_id` and dates — it replicates the backend's week rules exactly. Don't compute
    dates yourself; the backend rejects wrong-week items and the math is easy to get subtly wrong.
+   For a **today/tomorrow / same-week** order, add `--week this` — it surfaces the current week's
+   remaining days (past days dropped). The server still owns the cutoff; if it's too late `hfd order`
+   returns `ORDERING_CLOSED`.
 2. **Propose.** For the day the user wants (default: ask which day, or all five if they want a full
    week), show the top 1–3 ranked items with the *reasons* the planner gave, and the delivery date.
    Keep it short — a human picking lunch wants "Here's my pick: X for Mon 24th. Good?", not a wall.

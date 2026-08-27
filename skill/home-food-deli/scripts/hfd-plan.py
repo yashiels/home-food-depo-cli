@@ -75,13 +75,18 @@ def main():
     ap.add_argument("--prefs", default=DEFAULT_PREFS)
     ap.add_argument("--today", help="override today (YYYY-MM-DD) for testing")
     ap.add_argument("--weekday", help="only plan this weekday (Monday..Friday)")
+    ap.add_argument("--week", choices=["this", "next"], default="next",
+                    help="which delivery week to plan; 'this' surfaces the current week's remaining days (server still owns the cutoff)")
     args = ap.parse_args()
 
     today = date.fromisoformat(args.today) if args.today else date.today()
     prefs = load_prefs(args.prefs)
 
-    # Orderable delivery week = next calendar week (this week is closed: order Fri for next Mon).
-    next_mon = today + timedelta(days=(7 - today.weekday()))
+    # Delivery week: 'next' (default) or 'this' (current week's remaining days; server owns the cutoff).
+    if args.week == "this":
+        next_mon = today - timedelta(days=today.weekday())
+    else:
+        next_mon = today + timedelta(days=(7 - today.weekday()))
     y, q, w = week_menu_key(next_mon)
 
     try:
@@ -103,6 +108,8 @@ def main():
     days = []
     for i, wd in enumerate(weekdays):
         d = next_mon + timedelta(days=i if not args.weekday else weekdays_index(wd) )
+        if args.week == "this" and d < today:
+            continue  # ponytail: current-week planning drops days already past
         day_items = [it for it in items if it.get("day_of_week") == wd]
         ranked, excluded = [], []
         for it in day_items:
