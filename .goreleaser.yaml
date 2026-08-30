@@ -1,0 +1,41 @@
+version: 2
+project_name: home-food-depo-cli
+
+before:
+  hooks:
+    - go test ./...
+
+builds:
+  - id: hfd
+    main: .
+    binary: hfd
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+    targets:
+      - darwin_amd64
+      - darwin_arm64
+      - linux_amd64
+      - linux_arm64
+
+archives:
+  - id: default
+    ids:
+      - hfd
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"

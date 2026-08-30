@@ -4,3 +4,4 @@ hfd
 .env
 .env.local
 __pycache__/
+dist/
