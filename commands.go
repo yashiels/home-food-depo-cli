@@ -651,7 +651,12 @@ func reconcileOrder(d *Deps, itemID, date string, beforeIDs map[string]bool, cou
 			if r.OrderID == "" || beforeIDs[r.OrderID] {
 				continue
 			}
-			if r.MenuItemID != itemID || !sameDate(r.DeliveryDate, date) || r.OrderName != "" {
+			// Match a genuinely new order by delivery date. The my-orders list
+			// rows expose only {order_id, status, delivery_date} — no
+			// menu_item_id — so requiring r.MenuItemID == itemID (as before)
+			// never matched and every placement degraded to UNKNOWN_OUTCOME.
+			// A non-empty OrderName still marks someone else's (guest) order.
+			if !sameDate(r.DeliveryDate, date) || r.OrderName != "" {
 				continue
 			}
 			matchIDs = append(matchIDs, r.OrderID)

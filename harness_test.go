@@ -146,10 +146,14 @@ func mustJSON(v interface{}) []byte {
 }
 
 // orderRow builds a my-orders row in the backend's shape.
+// orderRow models a my-orders LIST row, which exposes only
+// {order_id, delivery_date, status} — NOT menu_item_id (that appears only on the
+// place-order response). itemID is accepted for call-site clarity but
+// deliberately not emitted, so reconcile tests prove matching works without it.
 func orderRow(id, itemID, date, status string) map[string]interface{} {
+	_ = itemID
 	return map[string]interface{}{
 		"order_id":      id,
-		"menu_item_id":  itemID,
 		"delivery_date": date,
 		"status":        status,
 	}
