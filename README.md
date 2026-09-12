@@ -8,6 +8,14 @@ success and on failure alike. The CLI exposes the full capability of your creden
 purchasing policy** — budget, cadence and human-in-the-loop confirmation belong to the calling agent
 or skill.
 
+## Install
+
+```bash
+brew install yashiels/tap/hfd
+```
+
+Or build from source:
+
 ## Build
 
 ```sh
