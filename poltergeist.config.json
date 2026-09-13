@@ -1,0 +1,14 @@
+{
+  "version": "1.0",
+  "projectType": "go",
+  "targets": [
+    {
+      "name": "hfd",
+      "type": "executable",
+      "enabled": true,
+      "buildCommand": "go build -o hfd .",
+      "outputPath": "./hfd",
+      "watchPaths": ["**/*.go", "go.mod", "go.sum"]
+    }
+  ]
+}
