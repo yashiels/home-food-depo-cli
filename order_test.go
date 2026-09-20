@@ -65,6 +65,46 @@ func TestOrderUsageErrorsSendNoPost(t *testing.T) {
 	}
 }
 
+func TestOrderNoteLength(t *testing.T) {
+	accepted := []struct {
+		name string
+		note string
+	}{
+		{"16 characters", "spicy very spicy"},
+		{"16 multi-byte characters", "éééééééééééééééé"},
+	}
+	for _, tc := range accepted {
+		t.Run(tc.name, func(t *testing.T) {
+			isolateHome(t)
+			fb := &fakeBackend{}
+
+			_, err := cmdOrder(newTestDeps(fb, time.Time{}, ""), []string{itemUUID, deliverDate, "--note", tc.note})
+
+			requireNoError(t, err)
+			requirePostCount(t, fb, 1)
+			if !strings.Contains(string(fb.postCalls[0].Body), `"special_requirements":"`+tc.note+`"`) {
+				t.Fatalf("POST body does not contain note %q: %s", tc.note, fb.postCalls[0].Body)
+			}
+		})
+	}
+
+	t.Run("17 characters", func(t *testing.T) {
+		isolateHome(t)
+		fb := &fakeBackend{}
+
+		data, err := cmdOrder(newTestDeps(fb, time.Time{}, ""), []string{itemUUID, deliverDate, "--note", "12345678901234567"})
+		cerr := requireCLIError(t, data, err, CodeValidation)
+
+		if cerr.Message != "note too long: 17 characters, the meal label fits 16" {
+			t.Fatalf("message = %q", cerr.Message)
+		}
+		requirePostCount(t, fb, 0)
+		if fb.getCount != 0 {
+			t.Fatalf("rejected note still read my-orders (%d EdgeGETs)", fb.getCount)
+		}
+	})
+}
+
 // ---- 2. clean success → exactly one POST ----------------------------------
 
 func TestOrderHappyPathPostsExactlyOnce(t *testing.T) {

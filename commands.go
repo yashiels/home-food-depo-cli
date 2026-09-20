@@ -23,6 +23,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 )
 
 // ---- small shared helpers -------------------------------------------------
@@ -36,6 +37,9 @@ var (
 var reconcilePolls = []time.Duration{300 * time.Millisecond, 700 * time.Millisecond, 1500 * time.Millisecond}
 
 const dateBindingLabel = "weekday-only, not authoritative"
+
+// maxNoteLen is the meal-label print limit.
+const maxNoteLen = 16
 
 func usageErr(msg string) *CLIError {
 	return &CLIError{Code: CodeUsage, Message: msg}
@@ -571,6 +575,10 @@ func cmdOrder(d *Deps, a []string) (interface{}, *CLIError) {
 	if len(pos) != 2 {
 		return nil, usageErr("usage: hfd order <menu_item_id> <YYYY-MM-DD> [--note <text>]")
 	}
+	noteLen := utf8.RuneCountInString(note)
+	if noteLen > maxNoteLen {
+		return nil, validationErr(fmt.Sprintf("note too long: %d characters, the meal label fits %d", noteLen, maxNoteLen))
+	}
 	itemID, date := pos[0], pos[1]
 	if !validUUID(itemID) {
 		return nil, validationErr("invalid menu_item_id: expected a UUID")
@@ -931,7 +939,8 @@ COMMANDS
                                        (a labeled heuristic). A date filters by WEEKDAY only.
   menus                                List published menus (id, year, quarter, week, published_at).
   order <item_id> <YYYY-MM-DD> [--note <text>]  Place a self-order. --note sets special
-                                       requirements (e.g. "spicy very spicy"). --for is DISABLED.
+                                       requirements, capped at 16 characters for the meal label.
+                                       --for is DISABLED.
   orders                               List my orders.
   cancel <order_id>                    Cancel an order (preflight + reconciliation).
   call --method GET|POST <fn> [json|-] Generic edge-function passthrough; "-" reads the body from stdin.
@@ -1031,6 +1040,7 @@ func helpCommands() []helpCommand {
 			Name: "order", Args: []string{"<menu_item_id>", "<YYYY-MM-DD>"}, Flags: []string{"--note <text>"},
 			Description: "Place a self-order for a menu item on a delivery date.",
 			Notes: []string{
+				"--note is capped at 16 characters to fit the meal label.",
 				"--for (guest ordering) is DISABLED and returns VALIDATION.",
 				"Structural validation only: UUID + YYYY-MM-DD. The server owns the cutoff verdict.",
 				"Exactly one POST, never auto-retried; ambiguity returns UNKNOWN_OUTCOME.",
