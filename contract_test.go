@@ -526,6 +526,30 @@ func TestOrdersDecodesBothBackendShapes(t *testing.T) {
 	}
 }
 
+func TestOrderRecordMapsLiveBackendFields(t *testing.T) {
+	record := orderRecord(map[string]interface{}{
+		"id":                   "7a36b071-0398-430c-a572-fdcb678a7497",
+		"delivery_date":        "2026-09-21",
+		"day_of_week":          "Monday",
+		"meal_name":            "Chicken fillet curry served with basmati rice & a garlic butter roti",
+		"meal_category":        "Main 2",
+		"special_requirements": "spicy very spicy, no roti",
+		"ordered_at":           "2026-09-20T10:25:14.80111+00:00",
+		"order_name":           nil,
+		"status":               "confirmed",
+	})
+
+	if record.ItemName != "Chicken fillet curry served with basmati rice & a garlic butter roti" {
+		t.Fatalf("item_name = %q", record.ItemName)
+	}
+	if record.CreatedAt != "2026-09-20T10:25:14.80111+00:00" {
+		t.Fatalf("created_at = %q", record.CreatedAt)
+	}
+	if record.MealCategory != "Main 2" || record.SpecialRequirements != "spicy very spicy, no roti" || record.DayOfWeek != "Monday" {
+		t.Fatalf("live order fields not decoded: %+v", record)
+	}
+}
+
 func TestOrdersRejectsArgsAndSurfacesAuthFailure(t *testing.T) {
 	fb := &fakeBackend{}
 	data, err := cmdOrders(newTestDeps(fb, time.Time{}, ""), []string{"all"})

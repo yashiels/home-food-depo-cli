@@ -395,13 +395,16 @@ func fetchOrders(d *Deps) ([]OrderRecord, *CLIError) {
 // is guaranteed (R4 #4); everything else stays empty when absent.
 func orderRecord(m map[string]interface{}) OrderRecord {
 	rec := OrderRecord{
-		OrderID:      jsonStr(m, "order_id", "id"),
-		Status:       jsonStr(m, "status", "state"),
-		MenuItemID:   jsonStr(m, "menu_item_id", "menuItemId"),
-		ItemName:     jsonStr(m, "item_name", "name"),
-		DeliveryDate: jsonStr(m, "delivery_date", "deliveryDate", "date"),
-		OrderName:    jsonStr(m, "order_name", "orderName", "guest_name"),
-		CreatedAt:    jsonStr(m, "created_at", "createdAt"),
+		OrderID:             jsonStr(m, "order_id", "id"),
+		Status:              jsonStr(m, "status", "state"),
+		MenuItemID:          jsonStr(m, "menu_item_id", "menuItemId"),
+		ItemName:            jsonStr(m, "item_name", "name", "meal_name"),
+		MealCategory:        jsonStr(m, "meal_category", "category"),
+		SpecialRequirements: jsonStr(m, "special_requirements", "special_requests", "note"),
+		DeliveryDate:        jsonStr(m, "delivery_date", "deliveryDate", "date"),
+		DayOfWeek:           jsonStr(m, "day_of_week", "weekday"),
+		OrderName:           jsonStr(m, "order_name", "orderName", "guest_name"),
+		CreatedAt:           jsonStr(m, "created_at", "createdAt", "ordered_at"),
 	}
 	// A nested menu_items{name} is the common Supabase join shape.
 	if rec.ItemName == "" {

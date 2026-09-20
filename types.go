@@ -128,13 +128,16 @@ type OrdersData struct {
 	Orders []OrderRecord `json:"orders"`
 }
 type OrderRecord struct {
-	OrderID      string `json:"order_id"`
-	Status       string `json:"status,omitempty"`
-	MenuItemID   string `json:"menu_item_id,omitempty"`
-	ItemName     string `json:"item_name,omitempty"`
-	DeliveryDate string `json:"delivery_date,omitempty"`
-	OrderName    string `json:"order_name,omitempty"`
-	CreatedAt    string `json:"created_at,omitempty"`
+	OrderID             string `json:"order_id"`
+	Status              string `json:"status,omitempty"`
+	MenuItemID          string `json:"menu_item_id,omitempty"`
+	ItemName            string `json:"item_name,omitempty"`
+	MealCategory        string `json:"meal_category,omitempty"`
+	SpecialRequirements string `json:"special_requirements,omitempty"`
+	DeliveryDate        string `json:"delivery_date,omitempty"`
+	DayOfWeek           string `json:"day_of_week,omitempty"`
+	OrderName           string `json:"order_name,omitempty"`
+	CreatedAt           string `json:"created_at,omitempty"`
 }
 
 // CancelData.FinalState ∈ {"canceled","absent"} ONLY. Unresolved → UNKNOWN_OUTCOME error (R4 #2).
