@@ -766,6 +766,20 @@ func TestGetPassthrough(t *testing.T) {
 	bad := &fakeBackend{}
 	data, cerr = cmdGet(newTestDeps(bad, time.Time{}, ""), nil)
 	requireCLIError(t, data, cerr, CodeUsage)
+
+	data, cerr = cmdGet(newTestDeps(bad, time.Time{}, ""), []string{"menus?select=id", "select=slot"})
+	requireCLIError(t, data, cerr, CodeUsage)
+}
+
+func TestGetSplitsInlineQuerystring(t *testing.T) {
+	fb := &fakeBackend{restGetFunc: func(table, query string) (int, []byte, error) {
+		if table != "menus" || query != "select=id,slot&limit=1" {
+			t.Fatalf("get forwarded table=%q query=%q", table, query)
+		}
+		return 200, []byte(`[]`), nil
+	}}
+	_, err := cmdGet(newTestDeps(fb, time.Time{}, ""), []string{"menus?select=id,slot&limit=1"})
+	requireNoError(t, err)
 }
 
 // ---- untrusted backend text is bounded ------------------------------------

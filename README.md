@@ -55,7 +55,7 @@ placed in argv — use the `call ... -` stdin form when a body needs to carry on
 | `orders` | List my orders. |
 | `cancel <order_id>` | Cancel an order (preflight + reconciliation). |
 | `call --method GET\|POST <function> [json\|-]` | Generic edge-function passthrough; bypasses all validation. |
-| `get <table> [querystring]` | Generic PostgREST read with the anon key; bypasses all validation. |
+| `get <table>[?query] [querystring]` | Generic PostgREST read with the anon key; bypasses all validation. `menus?select=id` and `menus select=id` are equivalent. |
 | `next` | Next week's Monday–Friday dates in SAST. Hints only. |
 | `help [--json]` | Human help text, or the machine-readable catalog. |
 

@@ -971,13 +971,16 @@ func cmdGet(d *Deps, a []string) (interface{}, *CLIError) {
 		return nil, cerr
 	}
 	if len(pos) < 1 || len(pos) > 2 {
-		return nil, usageErr("usage: hfd get <table> [querystring]")
+		return nil, usageErr("usage: hfd get <table>[?query] [querystring]")
 	}
-	query := ""
+	table, query, hasInlineQuery := strings.Cut(pos[0], "?")
+	if hasInlineQuery && len(pos) == 2 {
+		return nil, usageErr("pass the querystring either as table?query or as a second argument, not both")
+	}
 	if len(pos) == 2 {
 		query = pos[1]
 	}
-	status, resp, err := d.Backend.RestGET(pos[0], query)
+	status, resp, err := d.Backend.RestGET(table, query)
 	if err != nil {
 		return nil, &CLIError{
 			Code: CodeRemote, Message: "request failed", Retryable: true,
@@ -1041,7 +1044,7 @@ COMMANDS
   orders                               List my orders.
   cancel <order_id>                    Cancel an order (preflight + reconciliation).
   call --method GET|POST <fn> [json|-] Generic edge-function passthrough; "-" reads the body from stdin.
-  get <table> [querystring]            Generic PostgREST read via the anon key.
+  get <table>[?query] [querystring]    Generic PostgREST read via the anon key.
   next                                 Next week's Mon–Fri dates. Hints only (authoritative:false).
   help [--json]                        This text, or the machine-readable catalog.
 
