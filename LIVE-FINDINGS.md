@@ -23,3 +23,15 @@
 The orderable-week→menu mapping is not derivable from readable data without reversing the app's
 quarter_week(date) formula. Recommend solving this in the SKILL (policy layer + human-in-loop),
 keeping the CLI a pass-through, so a formula bug is a skill fix not a CLI rebuild.
+
+# Menu slot binding (2026-09-27)
+
+- This resolves and supersedes the open design problem above.
+- The web app maps the SAST Monday of a delivery week onto `menus.slot` using the local anchor
+  2026-09-20: `((floor(days_from_anchor / 7) mod 4) + 4) mod 4 + 1`.
+- Confirmed examples: 2026-09-14 → slot 4, 2026-09-21 → slot 1, 2026-09-28 → slot 2, and
+  2026-10-19 → slot 1.
+- Published menus are selected by that slot. Rows with `slot:null` are dead legacy duplicates and
+  must not participate in week binding.
+- Menu `ada07ea3-cbb8-4baa-809d-1e40cbcc55ee` is slot 2 and was accepted for a real order in the
+  delivery week of 2026-09-28.

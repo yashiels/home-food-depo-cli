@@ -19,17 +19,10 @@ from datetime import date, timedelta
 DEFAULT_PREFS = os.path.expanduser("~/.config/hfd/preferences.json")
 
 
-def iso_week(d):
-    return d.isocalendar()[1]
-
-
-def week_menu_key(d):
-    """Replicates the app's To(date): ISO-week → (year, quarter, quarter_week).
-    quarter = min(4, ceil(isoweek/13)); quarter_week cycles 1..4. Verified against a live order."""
-    t = iso_week(d)
-    q = min(4, -(-t // 13))
-    w = (t - (q - 1) * 13 - 1) % 4 + 1
-    return d.year, q, w
+def menu_slot(d):
+    monday = d - timedelta(days=d.weekday())
+    anchor = date(2026, 9, 20)
+    return ((monday - anchor).days // 7) % 4 + 1
 
 
 def hfd_json(hfd, *args):
@@ -82,20 +75,19 @@ def main():
     today = date.fromisoformat(args.today) if args.today else date.today()
     prefs = load_prefs(args.prefs)
 
-    # Delivery week: 'next' (default) or 'this' (current week's remaining days; server owns the cutoff).
     if args.week == "this":
         next_mon = today - timedelta(days=today.weekday())
     else:
         next_mon = today + timedelta(days=(7 - today.weekday()))
-    y, q, w = week_menu_key(next_mon)
+    slot = menu_slot(next_mon)
 
     try:
         menus = hfd_json(args.hfd, "menus").get("data", {}).get("menus", [])
     except RuntimeError as e:
         print(json.dumps({"ok": False, "error": str(e)})); return 3
-    match = [m for m in menus if m["year"] == y and m["quarter"] == q and m["quarter_week"] == w]
+    match = [m for m in menus if m.get("slot") == slot]
     if not match:
-        print(json.dumps({"ok": False, "error": f"no published menu for Q{q} wk{w} {y} (delivery week of {next_mon})",
+        print(json.dumps({"ok": False, "error": f"no published menu for slot {slot} (delivery week of {next_mon})",
                           "hint": "menu may not be published yet"})); return 3
     menu_id = match[0]["id"]
 
@@ -122,7 +114,7 @@ def main():
 
     cold = not prefs["likes"] and not prefs["never"]
     print(json.dumps({"ok": True, "delivery_week": f"{next_mon.isocalendar()[0]}-W{next_mon.isocalendar()[1]:02d}",
-                      "menu_id": menu_id, "cold_start": cold, "days": days}, indent=2))
+                      "menu_id": menu_id, "slot": slot, "cold_start": cold, "days": days}, indent=2))
     return 0
 
 

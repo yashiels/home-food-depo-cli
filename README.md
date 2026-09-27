@@ -49,8 +49,8 @@ placed in argv — use the `call ... -` stdin form when a body needs to carry on
 
 | Command | Description |
 |---|---|
-| `menu [YYYY-MM-DD] [--menu-id <id>]` | Items for a menu; default is the newest published menu. A date filters by **weekday only**. |
-| `menus` | List published menus, newest `published_at` first. |
+| `menu [YYYY-MM-DD] [--week this\|next] [--menu-id <id>]` | Items from the slot-bound menu; default is next week. A date selects its week and weekday. |
+| `menus [--all]` | List published slot-bound menus. `--all` includes legacy rows whose slot is null. |
 | `order <menu_item_id> <YYYY-MM-DD>` | Place a self-order. |
 | `orders` | List my orders. |
 | `cancel <order_id>` | Cancel an order (preflight + reconciliation). |
@@ -66,8 +66,9 @@ exits 0. `help` output is plain text, not the JSON envelope; `help --json` is th
 
 ```sh
 hfd menus
-hfd menu                       # newest published menu, all items
-hfd menu 2026-03-16            # same menu, Monday items only
+hfd menu                       # next week's slot menu, all items
+hfd menu --week this           # this week's slot menu, all items
+hfd menu 2026-09-28            # that week's slot menu, Monday items only
 hfd menu --menu-id 1212...9090
 
 hfd next                       # candidate delivery dates (hints, not authoritative)
@@ -141,12 +142,18 @@ error, never a data state. An already-canceled or absent order sends no POST at 
 Cross-machine concurrency is unsupported: the lock is local, and the backend offers no idempotency
 key.
 
-## Dates
+## Week binding
 
-All dates are interpreted in SAST (UTC+2, fixed offset). Menus carry no dates in the backend, so the
-CLI never claims an item is orderable for a given date: `menu` output carries
-`date_binding: "weekday-only, not authoritative"`, and `next` is tagged `authoritative:false`. The
-server owns the cutoff verdict.
+All dates are interpreted in SAST (UTC+2, fixed offset). The web app binds a delivery week to one of
+four rotating menu slots: find that week's Monday, count weeks from the 2026-09-20 anchor, normalize
+modulo four, then add one. For example, 2026-09-21 is slot 1 and 2026-09-28 is slot 2. The CLI uses
+this rule for dated menus, `--week this|next`, the default next-week menu, and `next`.
+
+`menu` returns `slot`, `week_of`, and `date_binding`; `menus` returns nullable `slot` values because
+legacy duplicates have no slot. Those rows are hidden by default and remain distinguishable from a
+real slot when included with `menus --all`. Slot binding follows the authoritative web-app rule, but
+the server still owns the ordering cutoff verdict. `next` remains tagged `authoritative:false` for
+its candidate dates.
 
 `--for` (guest ordering) is currently **disabled** and returns `VALIDATION`.
 
