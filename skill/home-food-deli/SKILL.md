@@ -32,9 +32,10 @@ Ordering spends real money on real food. **Propose, then wait for a clear "yes" 
    ```
    python3 scripts/hfd-plan.py --hfd "$(command -v hfd)"
    ```
-   It returns `{delivery_week, menu_id, cold_start, days:[{date, weekday, ranked:[{name,score,reasons}], excluded}]}`.
-   Trust its `menu_id` and dates — it replicates the backend's week rules exactly. Don't compute
-   dates yourself; the backend rejects wrong-week items and the math is easy to get subtly wrong.
+   It returns `{delivery_week, menu_id, slot, cold_start, days:[{date, weekday, ranked:[{name,score,reasons}], excluded}]}`.
+   Trust its `menu_id`, `slot`, and dates — it uses the web app's authoritative four-slot week
+   binding. Don't compute dates yourself; the backend rejects wrong-week items and the math is easy
+   to get subtly wrong.
    For a **today/tomorrow / same-week** order, add `--week this` — it surfaces the current week's
    remaining days (past days dropped). The server still owns the cutoff; if it's too late `hfd order`
    returns `ORDERING_CLOSED`.
@@ -78,7 +79,7 @@ There may already be historical taste data in the user's `whydev-claw` repo
 from it; otherwise start fresh and self-learn.
 
 ## Other things they may ask
-- **"What's on this week / next week?"** → the planner (or `hfd menu --menu-id <id>`), read-only.
+- **"What's on this week / next week?"** → the planner (or `hfd menu --week this|next`), read-only.
 - **"What did I order?"** → `hfd orders`.
 - **"Cancel it"** → confirm which order, then `hfd cancel <order_id>`.
 - **Order for a guest/colleague** → guest ordering (`--for`) is currently **disabled** in the CLI

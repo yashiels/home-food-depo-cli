@@ -91,8 +91,11 @@ func (e *CLIError) exitCode() int {
 
 type MenuData struct {
 	MenuID      string     `json:"menu_id"`
+	Slot        *int       `json:"slot"`
+	WeekOf      string     `json:"week_of"`
 	PublishedAt string     `json:"published_at"`
-	DateBinding string     `json:"date_binding"` // always "weekday-only, not authoritative"
+	DateBinding string     `json:"date_binding"`
+	Warning     string     `json:"warning,omitempty"`
 	Items       []MenuItem `json:"items"`
 }
 type MenuItem struct {
@@ -111,6 +114,7 @@ type MenuSummary struct {
 	Year        int    `json:"year"`
 	Quarter     int    `json:"quarter"`
 	QuarterWeek int    `json:"quarter_week"`
+	Slot        *int   `json:"slot"`
 	PublishedAt string `json:"published_at"`
 }
 
@@ -148,6 +152,7 @@ type CancelData struct {
 
 type NextData struct {
 	Authoritative bool       `json:"authoritative"` // always false
+	Slot          int        `json:"slot"`
 	Dates         []NextDate `json:"dates"`
 }
 type NextDate struct {

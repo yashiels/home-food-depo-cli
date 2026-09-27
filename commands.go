@@ -36,7 +36,7 @@ var (
 // reconcilePolls is the ambiguity poll schedule (var so tests can shorten it).
 var reconcilePolls = []time.Duration{300 * time.Millisecond, 700 * time.Millisecond, 1500 * time.Millisecond}
 
-const dateBindingLabel = "weekday-only, not authoritative"
+const dateBindingLabel = "slot-bound, authoritative-by-web-app-rule; server owns the cutoff"
 
 // maxNoteLen is the meal-label print limit.
 const maxNoteLen = 16
@@ -165,6 +165,30 @@ func jsonInt(m map[string]interface{}, keys ...string) int {
 	return 0
 }
 
+func jsonIntPtr(m map[string]interface{}, keys ...string) *int {
+	for _, k := range keys {
+		v, ok := m[k]
+		if !ok || v == nil {
+			continue
+		}
+		var n int
+		switch t := v.(type) {
+		case float64:
+			n = int(t)
+		case string:
+			parsed, err := strconv.Atoi(strings.TrimSpace(t))
+			if err != nil {
+				continue
+			}
+			n = parsed
+		default:
+			continue
+		}
+		return &n
+	}
+	return nil
+}
+
 // objects coerces a decoded value into a list of JSON objects.
 func objects(v interface{}) []map[string]interface{} {
 	arr, ok := v.([]interface{})
@@ -233,7 +257,7 @@ func classifyRead(status int, body []byte) *CLIError {
 
 // ---- menu / menus ---------------------------------------------------------
 
-const menuSelect = "select=id,year,quarter,quarter_week,published_at"
+const menuSelect = "select=id,year,quarter,quarter_week,slot,published_at"
 
 func menuSummary(m map[string]interface{}) MenuSummary {
 	return MenuSummary{
@@ -241,53 +265,109 @@ func menuSummary(m map[string]interface{}) MenuSummary {
 		Year:        jsonInt(m, "year"),
 		Quarter:     jsonInt(m, "quarter"),
 		QuarterWeek: jsonInt(m, "quarter_week"),
+		Slot:        jsonIntPtr(m, "slot"),
 		PublishedAt: jsonStr(m, "published_at"),
 	}
 }
 
+func menuWeek(date time.Time) (time.Time, int) {
+	local := date.In(SAST)
+	day := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, SAST)
+	monday := day.AddDate(0, 0, -(int(day.Weekday())+6)%7)
+	anchor := time.Date(2026, 9, 20, 0, 0, 0, 0, SAST)
+	days := int(monday.Sub(anchor) / (24 * time.Hour))
+	weeks := days / 7
+	if days < 0 && days%7 != 0 {
+		weeks--
+	}
+	slot := ((weeks%4)+4)%4 + 1
+	return monday, slot
+}
+
+func menuWeekForClock(d *Deps, week string) (time.Time, int) {
+	monday, slot := menuWeek(d.Clock.Now())
+	if week == "next" {
+		monday, slot = menuWeek(monday.AddDate(0, 0, 7))
+	}
+	return monday, slot
+}
+
 func cmdMenu(d *Deps, a []string) (interface{}, *CLIError) {
-	var menuID string
-	pos, cerr := splitArgs(a, map[string]*string{"--menu-id": &menuID})
+	var menuID, week string
+	pos, cerr := splitArgs(a, map[string]*string{"--menu-id": &menuID, "--week": &week})
 	if cerr != nil {
 		return nil, cerr
 	}
 	if len(pos) > 1 {
-		return nil, usageErr("usage: hfd menu [YYYY-MM-DD] [--menu-id <id>]")
+		return nil, usageErr("usage: hfd menu [YYYY-MM-DD] [--week this|next] [--menu-id <id>]")
+	}
+	if week != "" && week != "this" && week != "next" {
+		return nil, validationErr("invalid --week: expected this or next")
+	}
+	if len(pos) == 1 && week != "" {
+		return nil, usageErr("a date and --week cannot be used together")
+	}
+	if menuID != "" && !validUUID(menuID) {
+		return nil, validationErr("invalid --menu-id: expected a UUID")
 	}
 
-	// Optional weekday filter. The date is NOT sent anywhere: menus carry no
-	// dates, so this only narrows items by weekday (date_binding says so).
 	var wantDay string
+	var monday time.Time
+	var slot int
 	if len(pos) == 1 {
 		t, ok := parseDate(pos[0])
 		if !ok {
 			return nil, validationErr("invalid date " + strconv.Quote(pos[0]) + ": expected YYYY-MM-DD")
 		}
+		monday, slot = menuWeek(t)
 		wantDay = dayKey(t.Weekday().String())
+	} else {
+		if week == "" {
+			week = "next"
+		}
+		monday, slot = menuWeekForClock(d, week)
 	}
 
-	query := menuSelect + "&published_at=not.is.null&order=published_at.desc,id.desc&limit=1"
+	query := menuSelect + "&slot=eq." + strconv.Itoa(slot) + "&published_at=not.is.null&order=published_at.desc,id.desc"
 	if menuID != "" {
-		if !validUUID(menuID) {
-			return nil, validationErr("invalid --menu-id: expected a UUID")
-		}
 		query = menuSelect + "&id=eq." + menuID + "&limit=1"
 	}
 	rows, cerr := restRows(d, "menus", query)
 	if cerr != nil {
 		return nil, cerr
 	}
+	if menuID == "" {
+		matching := make([]map[string]interface{}, 0, len(rows))
+		for _, row := range rows {
+			rowSlot := jsonIntPtr(row, "slot")
+			if rowSlot != nil && *rowSlot == slot && jsonStr(row, "published_at") != "" {
+				matching = append(matching, row)
+			}
+		}
+		rows = matching
+		for i := 1; i < len(rows); i++ {
+			currentPublished := jsonStr(rows[i], "published_at")
+			newestPublished := jsonStr(rows[0], "published_at")
+			if currentPublished > newestPublished || currentPublished == newestPublished && jsonStr(rows[i], "id") > jsonStr(rows[0], "id") {
+				rows[0], rows[i] = rows[i], rows[0]
+			}
+		}
+	}
 	if len(rows) == 0 {
-		msg := "no published menu found"
+		msg := fmt.Sprintf("no published menu for slot %d (week of %s)", slot, monday.Format("2006-01-02"))
 		if menuID != "" {
 			msg = "menu not found"
 		}
 		return nil, &CLIError{
 			Code: CodeRemote, Message: msg, Retryable: false, Status: 200,
-			Details: map[string]interface{}{"menu_id": menuID},
+			Details: map[string]interface{}{"menu_id": menuID, "slot": slot, "week_of": monday.Format("2006-01-02")},
 		}
 	}
 	menu := menuSummary(rows[0])
+	warning := ""
+	if menuID == "" && len(rows) > 1 {
+		warning = fmt.Sprintf("multiple published menus matched slot %d; using newest published_at", slot)
+	}
 	if menu.ID == "" {
 		return nil, &CLIError{
 			Code: CodeRemote, Message: "menu row has no id", Retryable: false, Status: 200,
@@ -317,8 +397,11 @@ func cmdMenu(d *Deps, a []string) (interface{}, *CLIError) {
 
 	return &MenuData{
 		MenuID:      menu.ID,
+		Slot:        menu.Slot,
+		WeekOf:      monday.Format("2006-01-02"),
 		PublishedAt: menu.PublishedAt,
 		DateBinding: dateBindingLabel,
+		Warning:     warning,
 		Items:       items,
 	}, nil
 }
@@ -334,16 +417,27 @@ func dayKey(s string) string {
 }
 
 func cmdMenus(d *Deps, a []string) (interface{}, *CLIError) {
-	if len(a) > 0 {
-		return nil, usageErr("usage: hfd menus")
+	all := false
+	for _, arg := range a {
+		if arg != "--all" || all {
+			return nil, usageErr("usage: hfd menus [--all]")
+		}
+		all = true
 	}
-	rows, cerr := restRows(d, "menus", menuSelect+"&published_at=not.is.null&order=published_at.desc,id.desc")
+	query := menuSelect + "&published_at=not.is.null"
+	if !all {
+		query += "&slot=not.is.null"
+	}
+	rows, cerr := restRows(d, "menus", query+"&order=published_at.desc,id.desc")
 	if cerr != nil {
 		return nil, cerr
 	}
 	menus := make([]MenuSummary, 0, len(rows))
 	for _, r := range rows {
-		menus = append(menus, menuSummary(r))
+		menu := menuSummary(r)
+		if all || menu.Slot != nil {
+			menus = append(menus, menu)
+		}
 	}
 	return &MenusData{Menus: menus}, nil
 }
@@ -918,7 +1012,8 @@ func cmdNext(d *Deps, a []string) (interface{}, *CLIError) {
 			Weekday: day.Weekday().String(),
 		})
 	}
-	return &NextData{Authoritative: false, Dates: dates}, nil
+	_, slot := menuWeek(nextMonday)
+	return &NextData{Authoritative: false, Slot: slot, Dates: dates}, nil
 }
 
 // ---- help (single source of truth; §6 + R4) -------------------------------
@@ -935,9 +1030,11 @@ USAGE
   hfd help | hfd help --json | hfd <command> --help
 
 COMMANDS
-  menu [YYYY-MM-DD] [--menu-id <id>]   Items for a menu. Default = newest published menu
-                                       (a labeled heuristic). A date filters by WEEKDAY only.
-  menus                                List published menus (id, year, quarter, week, published_at).
+  menu [YYYY-MM-DD] [--week this|next] [--menu-id <id>]
+                                       Items from the slot-bound menu. Default = next week.
+                                       A date selects its week and filters by weekday.
+  menus [--all]                        List published menus with slots. Legacy slot-null rows
+                                       are hidden unless --all is supplied.
   order <item_id> <YYYY-MM-DD> [--note <text>]  Place a self-order. --note sets special
                                        requirements, capped at 16 characters for the meal label.
                                        --for is DISABLED.
@@ -965,8 +1062,8 @@ TOKEN SETUP
   A token file with looser permissions than 0600 is refused.
 
 NOTES
-  Dates are interpreted in SAST (UTC+2). Menus carry no dates, so the CLI never
-  claims an item is orderable for a date — the server owns that verdict.
+  Dates are interpreted in SAST (UTC+2). Delivery weeks map to menu slots using
+  the web app's four-week rule. The server owns the ordering cutoff verdict.
   order and cancel take an advisory lock (~/.config/hfd/lock); a second concurrent
   run fails with LOCKED and sends no request.
 `
@@ -1025,16 +1122,16 @@ type helpEnvelope struct {
 func helpCommands() []helpCommand {
 	return []helpCommand{
 		{
-			Name: "menu", Args: []string{"[YYYY-MM-DD]"}, Flags: []string{"--menu-id <id>"},
-			Description: "Items for a menu; default is the newest published menu (heuristic, labeled).",
+			Name: "menu", Args: []string{"[YYYY-MM-DD]"}, Flags: []string{"--week this|next", "--menu-id <id>"},
+			Description: "Items for a slot-bound menu; default is next week's menu.",
 			Notes: []string{
-				"A date argument filters by WEEKDAY only; data.date_binding says so.",
-				"Menus carry no dates, so this never asserts an item is orderable for a date.",
+				"A date selects its delivery-week slot and filters items by weekday.",
+				"The slot rule is authoritative for menu binding; the server owns the ordering cutoff.",
 			},
 		},
 		{
-			Name: "menus", Args: []string{}, Flags: []string{},
-			Description: "List published menus, newest published_at first.",
+			Name: "menus", Args: []string{}, Flags: []string{"--all"},
+			Description: "List published slot-bound menus; --all includes legacy slot-null rows.",
 		},
 		{
 			Name: "order", Args: []string{"<menu_item_id>", "<YYYY-MM-DD>"}, Flags: []string{"--note <text>"},

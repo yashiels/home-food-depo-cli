@@ -300,6 +300,11 @@ func TestNextReturnsFollowingWeekMonToFri(t *testing.T) {
 			if nd.Authoritative {
 				t.Fatalf("next must always be authoritative:false")
 			}
+			firstDate, _ := parseDate(tc.want[0])
+			_, wantSlot := menuWeek(firstDate)
+			if nd.Slot != wantSlot {
+				t.Fatalf("slot = %d, want %d", nd.Slot, wantSlot)
+			}
 			if len(nd.Dates) != 5 {
 				t.Fatalf("got %d dates, want 5", len(nd.Dates))
 			}
@@ -327,18 +332,51 @@ func TestNextRejectsArguments(t *testing.T) {
 	requireCLIError(t, data, err, CodeUsage)
 }
 
-// ---- 11. menu weekday filter ----------------------------------------------
+func TestMenuWeek(t *testing.T) {
+	cases := []struct {
+		name       string
+		date       string
+		wantMonday string
+		wantSlot   int
+	}{
+		{"slot 4 example", "2026-09-14", "2026-09-14", 4},
+		{"slot 1 example", "2026-09-21", "2026-09-21", 1},
+		{"slot 2 example", "2026-09-28", "2026-09-28", 2},
+		{"slot 1 repeats", "2026-10-19", "2026-10-19", 1},
+		{"Saturday uses prior Monday", "2026-10-03", "2026-09-28", 2},
+		{"Sunday uses prior Monday", "2026-10-04", "2026-09-28", 2},
+		{"before anchor", "2026-09-07", "2026-09-07", 3},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			input, ok := parseDate(tc.date)
+			if !ok {
+				t.Fatalf("invalid fixture date %q", tc.date)
+			}
+			monday, slot := menuWeek(input)
+			if got := monday.Format("2006-01-02"); got != tc.wantMonday {
+				t.Fatalf("Monday = %s, want %s", got, tc.wantMonday)
+			}
+			if slot != tc.wantSlot {
+				t.Fatalf("slot = %d, want %d", slot, tc.wantSlot)
+			}
+		})
+	}
+}
 
-// menuFixture serves two published menus and items spread across weekdays.
 func menuFixture() restGetFn {
 	menus := []interface{}{
 		map[string]interface{}{
-			"id": menuUUID, "year": 2026, "quarter": 1, "quarter_week": 11,
-			"published_at": "2026-03-06T09:00:00Z",
+			"id": menuUUID, "year": 2026, "quarter": 3, "quarter_week": 4, "slot": 2,
+			"published_at": "2026-09-20T09:00:00Z",
 		},
 		map[string]interface{}{
-			"id": otherUUID, "year": 2026, "quarter": 1, "quarter_week": 10,
-			"published_at": "2026-02-27T09:00:00Z",
+			"id": otherUUID, "year": 2026, "quarter": 3, "quarter_week": 3, "slot": 1,
+			"published_at": "2026-09-26T09:00:00Z",
+		},
+		map[string]interface{}{
+			"id": newOrderID, "year": 2026, "quarter": 3, "quarter_week": 4, "slot": nil,
+			"published_at": "2026-09-27T09:00:00Z",
 		},
 	}
 	items := []interface{}{
@@ -350,6 +388,9 @@ func menuFixture() restGetFn {
 	return func(table, query string) (int, []byte, error) {
 		switch table {
 		case "menus":
+			if strings.Contains(query, "id=eq."+menuUUID) {
+				return 200, mustJSON([]interface{}{menus[0]}), nil
+			}
 			return 200, mustJSON(menus), nil
 		case "menu_items":
 			return 200, mustJSON(items), nil
@@ -358,23 +399,24 @@ func menuFixture() restGetFn {
 	}
 }
 
-func TestMenuDateFiltersByWeekdayOnly(t *testing.T) {
+func TestMenuSelectsDeliveryWeekSlot(t *testing.T) {
 	cases := []struct {
 		name      string
 		args      []string
 		wantNames []string
 	}{
-		{"no date returns every item", nil, []string{"Bobotie", "Greek Salad", "Lasagne", "Fish"}},
-		{"Monday date", []string{"2026-03-16"}, []string{"Bobotie", "Greek Salad"}},
-		{"Tuesday date", []string{"2026-03-17"}, []string{"Lasagne"}},
-		{"Friday date, case-insensitive", []string{"2026-03-20"}, []string{"Fish"}},
-		{"Wednesday date matches nothing", []string{"2026-03-18"}, nil},
+		{"default returns next week", nil, []string{"Bobotie", "Greek Salad", "Lasagne", "Fish"}},
+		{"week next returns every item", []string{"--week", "next"}, []string{"Bobotie", "Greek Salad", "Lasagne", "Fish"}},
+		{"Monday date", []string{"2026-09-28"}, []string{"Bobotie", "Greek Salad"}},
+		{"Tuesday date", []string{"2026-09-29"}, []string{"Lasagne"}},
+		{"Friday date, case-insensitive", []string{"2026-10-02"}, []string{"Fish"}},
+		{"Wednesday date matches nothing", []string{"2026-09-30"}, nil},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			fb := &fakeBackend{restGetFunc: menuFixture()}
-			data, err := cmdMenu(newTestDeps(fb, time.Time{}, ""), tc.args)
+			data, err := cmdMenu(newTestDeps(fb, time.Date(2026, 9, 27, 12, 0, 0, 0, SAST), ""), tc.args)
 			requireNoError(t, err)
 
 			md, ok := data.(*MenuData)
@@ -382,9 +424,15 @@ func TestMenuDateFiltersByWeekdayOnly(t *testing.T) {
 				t.Fatalf("data is %T, want *MenuData", data)
 			}
 			if md.MenuID != menuUUID {
-				t.Fatalf("menu_id = %q, want the newest published menu %q", md.MenuID, menuUUID)
+				t.Fatalf("menu_id = %q, want slot menu %q", md.MenuID, menuUUID)
 			}
-			if md.PublishedAt != "2026-03-06T09:00:00Z" {
+			if md.Slot == nil || *md.Slot != 2 {
+				t.Fatalf("slot = %v, want 2", md.Slot)
+			}
+			if md.WeekOf != "2026-09-28" {
+				t.Fatalf("week_of = %q", md.WeekOf)
+			}
+			if md.PublishedAt != "2026-09-20T09:00:00Z" {
 				t.Fatalf("published_at = %q", md.PublishedAt)
 			}
 			if md.DateBinding != dateBindingLabel {
@@ -398,17 +446,23 @@ func TestMenuDateFiltersByWeekdayOnly(t *testing.T) {
 					t.Fatalf("item[%d] = %q, want %q", i, md.Items[i].Name, want)
 				}
 			}
-			// The date must never leave the machine: menus carry no dates.
-			for _, c := range fb.restCalls {
-				if strings.Contains(c.Query, "2026-03") {
-					t.Fatalf("the date argument leaked into a backend query: %s", c.Query)
-				}
+			if !strings.Contains(fb.restCalls[0].Query, "slot=eq.2") || !strings.Contains(fb.restCalls[0].Query, "published_at=not.is.null") {
+				t.Fatalf("menu query = %s", fb.restCalls[0].Query)
 			}
-			// Reads are anon-key PostgREST reads, never edge-function calls.
 			if fb.getCount+fb.postCount != 0 {
 				t.Fatalf("menu must not call any edge function")
 			}
 		})
+	}
+}
+
+func TestMenuWeekThis(t *testing.T) {
+	fb := &fakeBackend{restGetFunc: menuFixture()}
+	data, err := cmdMenu(newTestDeps(fb, time.Date(2026, 9, 27, 12, 0, 0, 0, SAST), ""), []string{"--week", "this"})
+	requireNoError(t, err)
+	menu := data.(*MenuData)
+	if menu.MenuID != otherUUID || menu.Slot == nil || *menu.Slot != 1 || menu.WeekOf != "2026-09-21" {
+		t.Fatalf("menu = %+v", menu)
 	}
 }
 
@@ -421,6 +475,8 @@ func TestMenuArgumentValidation(t *testing.T) {
 		{"bad date", []string{"2026-13-01"}, CodeValidation},
 		{"impossible date", []string{"2026-02-30"}, CodeValidation},
 		{"bad menu id", []string{"--menu-id", "nope"}, CodeValidation},
+		{"bad week", []string{"--week", "later"}, CodeValidation},
+		{"date with week", []string{"2026-09-28", "--week", "next"}, CodeUsage},
 		{"two positionals", []string{"2026-03-16", "2026-03-17"}, CodeUsage},
 		{"unknown flag", []string{"--menu", menuUUID}, CodeUsage},
 		{"flag without a value", []string{"--menu-id"}, CodeUsage},
@@ -439,7 +495,7 @@ func TestMenuArgumentValidation(t *testing.T) {
 
 func TestMenuByIDAndEmptyResult(t *testing.T) {
 	fb := &fakeBackend{restGetFunc: menuFixture()}
-	data, err := cmdMenu(newTestDeps(fb, time.Time{}, ""), []string{"--menu-id=" + menuUUID})
+	data, err := cmdMenu(newTestDeps(fb, time.Date(2026, 9, 27, 12, 0, 0, 0, SAST), ""), []string{"--menu-id=" + menuUUID})
 	requireNoError(t, err)
 	if md := data.(*MenuData); md.MenuID != menuUUID {
 		t.Fatalf("menu_id = %q", md.MenuID)
@@ -451,11 +507,32 @@ func TestMenuByIDAndEmptyResult(t *testing.T) {
 	empty := &fakeBackend{restGetFunc: func(string, string) (int, []byte, error) {
 		return 200, []byte(`[]`), nil
 	}}
-	data, cerr := cmdMenu(newTestDeps(empty, time.Time{}, ""), nil)
-	requireCLIError(t, data, cerr, CodeRemote)
+	data, cerr := cmdMenu(newTestDeps(empty, time.Date(2026, 9, 27, 12, 0, 0, 0, SAST), ""), nil)
+	got := requireCLIError(t, data, cerr, CodeRemote)
+	if got.Message != "no published menu for slot 2 (week of 2026-09-28)" {
+		t.Fatalf("message = %q", got.Message)
+	}
 }
 
-func TestMenusListsPublishedMenus(t *testing.T) {
+func TestMenuWarnsWhenMultipleMenusMatchSlot(t *testing.T) {
+	fb := &fakeBackend{restGetFunc: func(table, query string) (int, []byte, error) {
+		if table == "menus" {
+			return 200, mustJSON([]interface{}{
+				map[string]interface{}{"id": menuUUID, "slot": 2, "published_at": "2026-09-20T09:00:00Z"},
+				map[string]interface{}{"id": otherUUID, "slot": 2, "published_at": "2026-09-27T09:00:00Z"},
+			}), nil
+		}
+		return 200, []byte(`[]`), nil
+	}}
+	data, err := cmdMenu(newTestDeps(fb, time.Time{}, ""), []string{"2026-09-28"})
+	requireNoError(t, err)
+	menu := data.(*MenuData)
+	if menu.MenuID != otherUUID || menu.Warning == "" {
+		t.Fatalf("menu = %+v", menu)
+	}
+}
+
+func TestMenusHidesLegacyRowsUnlessAll(t *testing.T) {
 	fb := &fakeBackend{restGetFunc: menuFixture()}
 	data, err := cmdMenus(newTestDeps(fb, time.Time{}, ""), nil)
 	requireNoError(t, err)
@@ -467,8 +544,18 @@ func TestMenusListsPublishedMenus(t *testing.T) {
 	if len(ms.Menus) != 2 {
 		t.Fatalf("got %d menus, want 2", len(ms.Menus))
 	}
-	if ms.Menus[0].ID != menuUUID || ms.Menus[0].Year != 2026 || ms.Menus[0].QuarterWeek != 11 {
+	if ms.Menus[0].ID != menuUUID || ms.Menus[0].Slot == nil || *ms.Menus[0].Slot != 2 {
 		t.Fatalf("first menu = %+v", ms.Menus[0])
+	}
+	if !strings.Contains(fb.restCalls[0].Query, "slot=not.is.null") {
+		t.Fatalf("default menus query = %s", fb.restCalls[0].Query)
+	}
+
+	data, err = cmdMenus(newTestDeps(fb, time.Time{}, ""), []string{"--all"})
+	requireNoError(t, err)
+	all := data.(*MenusData)
+	if len(all.Menus) != 3 || all.Menus[2].Slot != nil {
+		t.Fatalf("all menus = %+v", all.Menus)
 	}
 
 	data, cerr := cmdMenus(newTestDeps(fb, time.Time{}, ""), []string{"extra"})
